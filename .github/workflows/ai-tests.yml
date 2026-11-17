@@ -11,12 +11,13 @@ permissions:
 
 env:
   LLM_PROVIDER: anthropic
-  LLM_MODEL: claude-haiku-5-5
+  LLM_MODEL: claude-sonnet-5-5
   ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
 
 jobs:
   llm-check:
     name: Vérification connectivité LLM
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -71,11 +72,11 @@ jobs:
             echo "## Évolution de la couverture (tests générés par IA)"
             echo "### Avant génération IA"
             echo '```text'
-            cat reports/cov_before.txt
+            [ -f reports/cov_before.txt ] && cat reports/cov_before.txt || echo "Rapport non généré"
             echo '```'
             echo "### Après génération IA"
             echo '```text'
-            cat reports/cov_after.txt
+            [ -f reports/cov_after.txt ] && cat reports/cov_after.txt || echo "Rapport non généré"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
@@ -102,10 +103,12 @@ jobs:
       - run: pip install -r requirements-dev.txt
 
       - name: Analyse du diff PR par LLM
+        env:
+          BASE_REF: ${{ github.base_ref }}
         run: |
           mkdir -p reports
           python ai_tools/review_pr.py \
-            --base origin/${{ github.base_ref }} \
+            --base "origin/$BASE_REF" \
             --out reports/ai-review.md
 
       - name: Publication ou mise à jour du commentaire sur la PR
