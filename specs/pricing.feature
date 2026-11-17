@@ -66,3 +66,27 @@ Fonctionnalité: Calcul du total d'un panier
     Étant donné un panier avec 1 "licorne"
     Quand je calcule le total
     Alors une erreur "Produit inconnu" est levée
+
+  Scénario: Coupon étudiant sans minimum d'achat
+    Étant donné un panier avec 1 "mug"
+    Quand j'applique le coupon "STUDENT15"
+    Et je calcule le total
+    Alors la remise vaut 1.88
+    Et la livraison vaut 4.90
+    Et le total vaut 15.52
+
+  Scénario: Coupon étudiant non cumulable avec la remise volume
+    Étant donné un panier avec 10 "sticker"
+    Quand j'applique le coupon "STUDENT15"
+    Et je calcule le total
+    Alors le sous-total vaut 23.28
+    Et la remise vaut 0.00
+    Et le total vaut 28.18
+
+  Scénario: Coupon étudiant sur panier mixte
+    Étant donné un panier avec 2 "mug" et 10 "sticker"
+    Quand j'applique le coupon "STUDENT15"
+    Et je calcule le total
+    Alors le sous-total vaut 48.28
+    Et la remise vaut 3.75
+    Et le total vaut 49.43
