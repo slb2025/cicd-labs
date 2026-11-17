@@ -35,7 +35,8 @@ jobs:
         run: |
           mkdir -p reports
           pytest -n auto -m "unit or api" \
-            --cov=minishop \
+            --cov=minishop.pricing \
+            --cov=minishop.catalog \
             --cov-report=xml \
             --cov-report=html \
             --cov-fail-under=85 \
@@ -54,3 +55,36 @@ jobs:
             reports/
             htmlcov/
             coverage.xml
+
+  container-test:
+    needs: lint
+    runs-on: ubuntu-latest
+    container:
+      image: python:3.12-slim
+    steps:
+      - uses: actions/checkout@v4
+      - run: pip install --no-cache-dir -r requirements-dev.txt
+      - run: pytest -n auto -m "unit or api"
+
+  docker:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Construction de l'image Docker
+        run: docker build -t minishop:ci .
+      - name: Smoke test sur /health
+        run: |
+          docker run -d --name minishop-smoke -p 8000:8000 minishop:ci
+          for i in $(seq 1 15); do
+            if curl -fsS http://localhost:8000/health; then
+              echo ""
+              echo "Smoke test /health OK"
+              docker rm -f minishop-smoke
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs minishop-smoke
+          docker rm -f minishop-smoke
+          exit 1
