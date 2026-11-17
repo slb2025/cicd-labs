@@ -8,6 +8,7 @@ Règles métier (voir specs/pricing.feature) :
     * WELCOME10 : -10 % sur le sous-total si sous-total >= 20 €
     * FIXED5    : -5 € si sous-total >= 30 €
     * FREESHIP  : livraison offerte
+    * STUDENT15 : -15 % sur les lignes sans remise volume (sans minimum)
   Un seul coupon par panier. Coupon inconnu -> ValueError.
 - Livraison : 4,90 € ; offerte si le total après remise >= 50 €.
 - Panier vide : total 0, pas de frais de livraison.
@@ -27,7 +28,7 @@ FREE_SHIPPING_THRESHOLD = Decimal("50.00")
 BULK_QTY = 10
 BULK_RATE = Decimal("0.05")
 MAX_QTY = 99
-COUPONS = {"WELCOME10", "FIXED5", "FREESHIP"}
+COUPONS = {"WELCOME10", "FIXED5", "FREESHIP", "STUDENT15"}
 
 
 def money(value: Decimal | float | int | str) -> Decimal:
@@ -82,7 +83,7 @@ def line_total(unit_price: Decimal, qty: int) -> Decimal:
     return money(gross)
 
 
-def coupon_discount(subtotal: Decimal, coupon: str | None) -> Decimal:
+def coupon_discount(subtotal: Decimal, coupon: str | None, lines: list[Line] | None = None) -> Decimal:
     """Montant de la remise apportée par le coupon (positif)."""
     if coupon is None or coupon == "":
         return Decimal("0.00")
@@ -93,6 +94,13 @@ def coupon_discount(subtotal: Decimal, coupon: str | None) -> Decimal:
         return money(subtotal * Decimal("0.10"))
     if code == "FIXED5" and subtotal >= Decimal("30"):
         return Decimal("5.00")
+    if code == "STUDENT15":
+        eligible = (
+            sum((ln.total for ln in lines if ln.qty < BULK_QTY), Decimal("0"))
+            if lines is not None
+            else subtotal
+        )
+        return money(eligible * Decimal("0.15"))
     return Decimal("0.00")
 
 
@@ -114,7 +122,7 @@ def quote(items: list[dict], coupon: str | None = None) -> Quote:
         total = line_total(product.price, item["qty"])
         q.lines.append(Line(product.id, item["qty"], product.price, total))
     q.subtotal = money(sum((ln.total for ln in q.lines), Decimal("0")))
-    q.discount = coupon_discount(q.subtotal, coupon) if q.lines else Decimal("0.00")
+    q.discount = coupon_discount(q.subtotal, coupon, q.lines) if q.lines else Decimal("0.00")
     after = q.subtotal - q.discount
     q.shipping = shipping_cost(after, coupon, empty=not q.lines)
     q.total = money(after + q.shipping)
