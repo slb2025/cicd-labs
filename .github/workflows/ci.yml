@@ -1,0 +1,90 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+      - run: pip install ruff
+      - run: ruff check . --output-format=github
+
+  test:
+    needs: lint
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: "pip"
+      - run: pip install -r requirements-dev.txt
+      - name: Exécution des tests et mesure de couverture
+        run: |
+          mkdir -p reports
+          pytest -n auto -m "unit or api" \
+            --cov=minishop.pricing \
+            --cov=minishop.catalog \
+            --cov-report=xml \
+            --cov-report=html \
+            --cov-fail-under=85 \
+            --junitxml=reports/junit.xml
+      - name: Résumé de couverture dans GitHub Actions
+        if: always()
+        run: |
+          echo "### Couverture de code (Python ${{ matrix.python-version }})" >> "$GITHUB_STEP_SUMMARY"
+          coverage report --format=markdown >> "$GITHUB_STEP_SUMMARY"
+      - name: Publication des rapports (JUnit & HTML)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: reports-py${{ matrix.python-version }}
+          path: |
+            reports/
+            htmlcov/
+            coverage.xml
+
+  container-test:
+    needs: lint
+    runs-on: ubuntu-latest
+    container:
+      image: python:3.12-slim
+    steps:
+      - uses: actions/checkout@v4
+      - run: pip install --no-cache-dir -r requirements-dev.txt
+      - run: pytest -n auto -m "unit or api"
+
+  docker:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Construction de l'image Docker
+        run: docker build -t minishop:ci .
+      - name: Smoke test sur /health
+        run: |
+          docker run -d --name minishop-smoke -p 8000:8000 minishop:ci
+          for i in $(seq 1 15); do
+            if curl -fsS http://localhost:8000/health; then
+              echo ""
+              echo "Smoke test /health OK"
+              docker rm -f minishop-smoke
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs minishop-smoke
+          docker rm -f minishop-smoke
+          exit 1
