@@ -19,9 +19,11 @@
 | nocturne | charge, ZAP complet | p95 < 300 ms, erreurs < 1 % |
 
 ## 3. Règles pour les tests générés par IA
-- Un test généré est **relu** avant fusion (marqueur `@pytest.mark.generated`).
-- Il doit échouer si on casse la règle qu'il prétend vérifier (vérifié par mutation).
-- Pas de secret ni de donnée client dans les prompts.
+- **Traçabilité obligatoire** : tout test issu d'un LLM porte le marqueur `pytestmark = [pytest.mark.generated, pytest.mark.unit]` et vit dans `tests/generated/`.
+- **Relecture humaine avant merge** : aucun test généré n'est fusionné sans audit des assertions, des bornes exactes (`>=` vs `>`) et des divergences éventuelles (`# DIVERGENCE SPEC/CODE`).
+- **Preuve par mutation** : la couverture ne suffit pas ; tout lot généré doit être validé par `ai_tools/mutation_score.py` (cible ≥ 80 %, référence mesurée sur `pricing.py` : 84 % LLM vs 89 % manuel et 71 % offline).
+- **Confidentialité des prompts** : interdiction stricte d'envoyer des secrets, clés API, données personnelles (PII) ou dumps de production à un fournisseur externe ; privilégier les spécifications Gherkin et le code métier anonymisé (ou `LLM_PROVIDER=offline` / modèle local).
+- **Responsabilité** : le développeur ou QA qui ouvre la Pull Request reste **entièrement responsable** de la pertinence et de la maintenance des tests générés qu'il soumet, au même titre que du code écrit à la main.
 
 ## 4. Gestion des tests instables (flaky)
 - Détection : `ai_tools/test_history.py` (score ≥ 0,6).
