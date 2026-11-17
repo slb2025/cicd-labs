@@ -12,7 +12,6 @@ permissions:
 env:
   LLM_PROVIDER: anthropic
   LLM_MODEL: claude-sonnet-5-5
-  ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
 
 jobs:
   llm-check:
@@ -27,11 +26,14 @@ jobs:
           cache: "pip"
       - run: pip install -r requirements-dev.txt
       - name: Test appel LLM
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: python ai_tools/llm.py
 
   ai-generate:
     name: Génération de tests IA & delta couverture
     needs: llm-check
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -51,6 +53,8 @@ jobs:
 
       - name: Génération des tests depuis specs/pricing.feature
         continue-on-error: true
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
           mkdir -p tests/generated
           python ai_tools/generate_tests.py specs/pricing.feature \
@@ -90,7 +94,7 @@ jobs:
   ai-review:
     name: Revue de PR orientée tests par IA
     needs: llm-check
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -105,6 +109,7 @@ jobs:
       - name: Analyse du diff PR par LLM
         env:
           BASE_REF: ${{ github.base_ref }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
           mkdir -p reports
           python ai_tools/review_pr.py \
