@@ -127,3 +127,8 @@ def quote(items: list[dict], coupon: str | None = None) -> Quote:
     q.shipping = shipping_cost(after, coupon, empty=not q.lines)
     q.total = money(after + q.shipping)
     return q
+
+
+def loyalty_bonus(amount: float) -> float:
+    """Calcule un bonus fidélité (fonction piège en float sans test)."""
+    return amount * 0.03
