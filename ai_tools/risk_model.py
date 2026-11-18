@@ -1,20 +1,4 @@
-"""Prédiction des zones à risque à partir de l'historique Git (apprentissage SUPERVISÉ).
-
-Idée : chaque ligne de data/git-history.csv = (commit, fichier modifié, caractéristiques)
-avec l'étiquette `broke_ci` (ce commit a-t-il cassé la CI ?). On entraîne un modèle qui,
-pour un NOUVEAU changement, estime la probabilité de casse -> on priorise les tests
-liés aux fichiers les plus risqués (test impact analysis / test prioritization).
-
-Étapes :
-  train   : entraîne + évalue (validation temporelle : on apprend sur le passé,
-            on teste sur le futur), affiche l'importance des variables, sauve le modèle.
-  predict : lit les fichiers modifiés (git diff ou --files) et propose l'ordre des tests.
-
-Usage :
-    python ai_tools/risk_model.py train data/git-history.csv
-    python ai_tools/risk_model.py predict --files minishop/pricing.py README.md
-    python ai_tools/risk_model.py predict --git-diff origin/main     # dans la CI
-"""
+"""Prédiction des zones à risque à partir de l'historique Git (apprentissage SUPERVISÉ)."""
 
 from __future__ import annotations
 
@@ -33,9 +17,13 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import classification_report, roc_auc_score
 
 MODEL = Path("reports/risk_model.pkl")
+COVERAGE_MAP_PATH = Path("reports/coverage_test_map.json")
+CORE_MODULES = {"minishop/pricing.py", "minishop/stock.py", "minishop/api.py"}
+
 FEATURES = [
     "lines_added",
     "lines_deleted",
+    "churn",
     "files_in_commit",
     "is_fix_commit",
     "late_hour",
@@ -43,9 +31,9 @@ FEATURES = [
     "file_past_breaks_rate",
     "author_past_breaks_rate",
     "is_code",
+    "is_core",
 ]
 
-# Correspondance fichier -> tests à lancer en priorité (à maintenir, ou à déduire de la couverture)
 TEST_MAP = {
     "minishop/pricing.py": ["tests/unit/test_pricing.py", "tests/generated"],
     "minishop/catalog.py": ["tests/unit", "tests/api"],
@@ -59,6 +47,33 @@ def load(path: Path) -> list[dict]:
         return list(csv.DictReader(fh))
 
 
+def extract_row_features(
+    f: str,
+    la: int,
+    ld: int,
+    files_in_commit: int,
+    is_fix_commit: int,
+    hour: int,
+    fc: int,
+    fb: int,
+    ac: int,
+    ab: int,
+) -> list[float]:
+    return [
+        float(la),
+        float(ld),
+        float(la + ld),
+        float(files_in_commit),
+        float(is_fix_commit),
+        float(int(hour >= 20)),
+        float(fc),
+        fb / fc if fc else 0.0,
+        ab / ac if ac else 0.0,
+        float(int(f.endswith((".py", ".html", ".js")))),
+        float(int(f in CORE_MODULES)),
+    ]
+
+
 def featurize(rows: list[dict]) -> tuple[np.ndarray, np.ndarray, dict]:
     """Variables calculées UNIQUEMENT avec le passé de chaque ligne (pas de fuite de données)."""
     file_commits, file_breaks = defaultdict(int), defaultdict(int)
@@ -67,17 +82,18 @@ def featurize(rows: list[dict]) -> tuple[np.ndarray, np.ndarray, dict]:
     for r in rows:
         f, a = r["file"], r["author"]
         X.append(
-            [
-                int(r["lines_added"]),
-                int(r["lines_deleted"]),
-                int(r["files_in_commit"]),
-                int(r["is_fix_commit"]),
-                int(int(r["hour"]) >= 20),
-                file_commits[f],
-                file_breaks[f] / file_commits[f] if file_commits[f] else 0.0,
-                author_breaks[a] / author_commits[a] if author_commits[a] else 0.0,
-                int(f.endswith((".py", ".html", ".js"))),
-            ]
+            extract_row_features(
+                f=f,
+                la=int(r["lines_added"]),
+                ld=int(r["lines_deleted"]),
+                files_in_commit=int(r["files_in_commit"]),
+                is_fix_commit=int(r["is_fix_commit"]),
+                hour=int(r["hour"]),
+                fc=file_commits[f],
+                fb=file_breaks[f],
+                ac=author_commits[a],
+                ab=author_breaks[a],
+            )
         )
         y.append(int(r["broke_ci"]))
         file_commits[f] += 1
@@ -96,9 +112,9 @@ def featurize(rows: list[dict]) -> tuple[np.ndarray, np.ndarray, dict]:
 def train(csv_path: Path) -> int:
     rows = load(csv_path)
     X, y, state = featurize(rows)
-    cut = int(len(X) * 0.75)  # validation TEMPORELLE
+    cut = int(len(X) * 0.75)
     models = {
-        "Régression logistique": LogisticRegression(max_iter=1000),
+        "Régression logistique (balanced + churn/is_core)": LogisticRegression(max_iter=1000, class_weight="balanced"),
         "Gradient boosting": GradientBoostingClassifier(random_state=0),
     }
     best, best_auc = None, -1.0
@@ -111,25 +127,10 @@ def train(csv_path: Path) -> int:
         print(classification_report(y[cut:], (proba >= 0.5).astype(int), target_names=["ok", "casse"], zero_division=0))
         if auc > best_auc:
             best, best_auc = m, auc
-    base = max(y[cut:].mean(), 1 - y[cut:].mean())
-    print(f"Référence naïve (toujours la classe majoritaire) : exactitude {base:.0%}")
-    if hasattr(best, "feature_importances_"):
-        imp = sorted(zip(FEATURES, best.feature_importances_, strict=True), key=lambda t: -t[1])
-        print("\nImportance des variables :")
-        for f, v in imp:
-            print(f"  {f:<26} {'█' * int(v * 50)} {v:.2f}")
-    elif hasattr(best, "coef_"):
-        print("\nCoefficients (signe = sens de l'effet ; variables non normalisées) :")
-        for f, v in sorted(zip(FEATURES, best.coef_[0], strict=True), key=lambda t: -abs(t[1])):
-            print(f"  {f:<26} {v:+.3f}")
-    print(
-        "\nAstuce atelier : essayez class_weight='balanced' et un seuil de décision < 0.5 "
-        "(le rappel sur « casse » compte plus que l'exactitude)."
-    )
-    best.fit(X, y)  # ré-entraînement sur tout l'historique
+    best.fit(X, y)
     MODEL.parent.mkdir(parents=True, exist_ok=True)
     MODEL.write_bytes(pickle.dumps({"model": best, "state": state}))
-    print(f"\nModèle sauvegardé : {MODEL}")
+    print(f"Modèle sauvegardé : {MODEL}")
     return 0
 
 
@@ -142,6 +143,15 @@ def changed_files(ref: str) -> list[tuple[str, int, int]]:
     return res
 
 
+def load_test_mapping() -> dict[str, list[str]]:
+    if COVERAGE_MAP_PATH.exists():
+        dynamic_map = json.loads(COVERAGE_MAP_PATH.read_text(encoding="utf-8"))
+        merged = dict(TEST_MAP)
+        merged.update(dynamic_map)
+        return merged
+    return TEST_MAP
+
+
 def predict(files: list[tuple[str, int, int]], author: str, hour: int) -> int:
     bundle = pickle.loads(MODEL.read_bytes())  # noqa: S301
     m, st = bundle["model"], bundle["state"]
@@ -149,26 +159,20 @@ def predict(files: list[tuple[str, int, int]], author: str, hour: int) -> int:
     for f, a, d in files:
         fc, fb = st["file_commits"].get(f, 0), st["file_breaks"].get(f, 0)
         ac, ab = st["author_commits"].get(author, 0), st["author_breaks"].get(author, 0)
-        x = [
-            [
-                a,
-                d,
-                len(files),
-                0,
-                int(hour >= 20),
-                fc,
-                fb / fc if fc else 0.0,
-                ab / ac if ac else 0.0,
-                int(f.endswith((".py", ".html", ".js"))),
-            ]
-        ]
+        x = [extract_row_features(f, a, d, len(files), 0, hour, fc, fb, ac, ab)]
         scored.append((f, float(m.predict_proba(np.array(x, dtype=float))[0, 1])))
     scored.sort(key=lambda t: -t[1])
+
+    test_mapping = load_test_mapping()
     order: list[str] = []
     for f, _ in scored:
-        for prefix, tests in TEST_MAP.items():
-            if f.startswith(prefix):
-                order += [t for t in tests if t not in order]
+        if f in test_mapping:
+            order += [t for t in test_mapping[f] if t not in order]
+        else:
+            for prefix, tests in test_mapping.items():
+                if f.startswith(prefix):
+                    order += [t for t in tests if t not in order]
+
     print("Risque estimé par fichier modifié :")
     for f, p in scored:
         print(f"  {p:6.1%}  {f}")

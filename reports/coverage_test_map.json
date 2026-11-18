@@ -1,0 +1,16 @@
+{
+  "minishop/api.py": [
+    "tests/api/test_api_smoke.py"
+  ],
+  "minishop/catalog.py": [
+    "tests/api/test_api_smoke.py",
+    "tests/generated/test_pricing_ai.py",
+    "tests/generated/test_pricing_offline.py",
+    "tests/unit/test_pricing.py"
+  ],
+  "minishop/pricing.py": [
+    "tests/generated/test_pricing_ai.py",
+    "tests/generated/test_pricing_offline.py",
+    "tests/unit/test_pricing.py"
+  ]
+}

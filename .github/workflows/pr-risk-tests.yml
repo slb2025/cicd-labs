@@ -1,0 +1,43 @@
+name: PR Risk-Based Test Prioritization
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  prioritized-tests:
+    name: Priorisation des tests par risque (Fail-Fast)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Installer les dépendances
+        run: pip install -r requirements-dev.txt scikit-learn numpy
+
+      - name: Entraîner le modèle et prédire les tests à risque sur le diff PR
+        run: |
+          python ai_tools/risk_model.py train data/git-history.csv
+          python ai_tools/risk_model.py predict --git-diff origin/${{ github.base_ref }}
+
+      - name: 1. Exécuter d'abord les tests ciblés les plus risqués (fail-fast)
+        run: |
+          TARGETS=$(cat reports/tests_to_run.txt | xargs)
+          if [ -n "$TARGETS" ]; then
+            set +e
+            pytest -x -m "not e2e and not visual" $TARGETS
+            EXIT_CODE=$?
+            set -e
+            if [ "$EXIT_CODE" -ne 0 ] && [ "$EXIT_CODE" -ne 5 ]; then
+              exit "$EXIT_CODE"
+            fi
+          fi
+
+      - name: 2. Exécuter la suite complète de non-régression (on réordonne, on ne retire pas)
+        run: pytest -m "not e2e and not visual"
