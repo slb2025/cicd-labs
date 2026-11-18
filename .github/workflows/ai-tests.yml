@@ -1,0 +1,125 @@
+name: AI Tests & PR Review
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+env:
+  LLM_PROVIDER: anthropic
+  LLM_MODEL: claude-sonnet-5-5
+
+jobs:
+  llm-check:
+    name: Vérification connectivité LLM
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+      - run: pip install -r requirements-dev.txt
+      - name: Test appel LLM
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: python ai_tools/llm.py
+
+  ai-generate:
+    name: Génération de tests IA & delta couverture
+    needs: llm-check
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+      - run: pip install -r requirements-dev.txt
+
+      - name: Couverture AVANT génération IA
+        run: |
+          mkdir -p reports
+          pytest -n auto -m "unit and not generated" \
+            --cov=minishop.pricing \
+            --cov-branch \
+            --cov-report=term-missing | tee reports/cov_before.txt
+
+      - name: Génération des tests depuis specs/pricing.feature
+        continue-on-error: true
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          mkdir -p tests/generated
+          python ai_tools/generate_tests.py specs/pricing.feature \
+            --source minishop/pricing.py \
+            --out tests/generated/test_pricing_pr_ai.py
+
+      - name: Couverture APRÈS génération IA
+        continue-on-error: true
+        run: |
+          pytest -n auto -m "unit" \
+            --cov=minishop.pricing \
+            --cov-branch \
+            --cov-report=term-missing | tee reports/cov_after.txt
+
+      - name: Résumé couverture avant / après dans GitHub Actions
+        if: always()
+        run: |
+          {
+            echo "## Évolution de la couverture (tests générés par IA)"
+            echo "### Avant génération IA"
+            echo '```text'
+            [ -f reports/cov_before.txt ] && cat reports/cov_before.txt || echo "Rapport non généré"
+            echo '```'
+            echo "### Après génération IA"
+            echo '```text'
+            [ -f reports/cov_after.txt ] && cat reports/cov_after.txt || echo "Rapport non généré"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Publication des tests générés en artefact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: generated-tests-pr-${{ github.event.pull_request.number || github.run_id }}
+          path: tests/generated/
+
+  ai-review:
+    name: Revue de PR orientée tests par IA
+    needs: llm-check
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+      - run: pip install -r requirements-dev.txt
+
+      - name: Analyse du diff PR par LLM
+        env:
+          BASE_REF: ${{ github.base_ref }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          mkdir -p reports
+          python ai_tools/review_pr.py \
+            --base "origin/$BASE_REF" \
+            --out reports/ai-review.md
+
+      - name: Publication ou mise à jour du commentaire sur la PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          gh pr comment "$PR_NUMBER" --body-file reports/ai-review.md --edit-last \
+            || gh pr comment "$PR_NUMBER" --body-file reports/ai-review.md
