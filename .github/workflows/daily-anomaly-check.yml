@@ -1,0 +1,60 @@
+name: Daily Test History & Log Anomaly Gate
+
+on:
+  schedule:
+    - cron: "0 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test-history-analysis:
+    name: Analyse quotidienne de l'historique des tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+      - run: pip install -r requirements-dev.txt
+
+      - name: Générer les données JUnit si absentes
+        run: |
+          if [ ! -d "data/junit-history" ] || [ -z "$(ls -A data/junit-history 2>/dev/null)" ]; then
+            python scripts/simulate_history.py
+          fi
+
+      - name: Analyser flakiness, lenteurs et familles d'échecs
+        run: |
+          mkdir -p reports
+          python ai_tools/test_history.py data/junit-history > reports/test-history.md
+          cat reports/test-history.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Publier le rapport en artefact
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-history-report
+          path: reports/test-history.md
+
+  log-anomaly-gate:
+    name: Quality gate anomalies de logs après charge (bonus)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+      - run: pip install -r requirements-dev.txt
+
+      - name: Exécuter un test de charge et vérifier les anomalies de logs
+        run: |
+          mkdir -p logs reports
+          MINISHOP_LOG_FILE=logs/app.jsonl uvicorn minishop.api:app --port 8000 &
+          SERVER_PID=$!
+          sleep 2
+          locust -f tests/perf/locustfile.py --host http://localhost:8000 --headless -u 10 -r 5 -t 20s
+          kill $SERVER_PID
+          python ai_tools/log_anomalies.py logs/app.jsonl --window 5 --contamination 0.02 --fail-on-anomaly
