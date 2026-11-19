@@ -24,3 +24,4 @@ locust>=2.29
 # (prometheus-client déjà inclus)
 # Documentation (Module 4)
 mkdocs-material>=9.5
+selenium>=4.20.0
