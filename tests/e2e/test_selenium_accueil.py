@@ -5,10 +5,11 @@ from __future__ import annotations
 import os
 
 import pytest
-from selenium import webdriver
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.support.ui import WebDriverWait
+
+webdriver = pytest.importorskip("selenium.webdriver")
+By = pytest.importorskip("selenium.webdriver.common.by").By
+EC = pytest.importorskip("selenium.webdriver.support.expected_conditions")
+WebDriverWait = pytest.importorskip("selenium.webdriver.support.ui").WebDriverWait
 
 pytestmark = pytest.mark.e2e
 
@@ -27,12 +28,12 @@ def test_selenium_titre_et_ajout_produit() -> None:
 
         wait = WebDriverWait(driver, 10)
         add_btn = wait.until(
-            EC.element_to_be_clickable((By.CSS_SELECTOR, "[data-testid=\"add-mug\"]"))
+            EC.element_to_be_clickable((By.CSS_SELECTOR, '[data-testid="add-mug"]'))
         )
         add_btn.click()
 
         cart_item = wait.until(
-            EC.visibility_of_element_located((By.CSS_SELECTOR, "[data-testid=\"cart-mug\"]"))
+            EC.visibility_of_element_located((By.CSS_SELECTOR, '[data-testid="cart-mug"]'))
         )
         assert "1" in cart_item.text
     finally:
