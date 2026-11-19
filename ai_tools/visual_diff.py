@@ -63,7 +63,8 @@ def compare(baseline: Path, current: Path, diff_out: Path | None = None, toleran
         out[changed] = [255, 0, 255]
         diff_out.parent.mkdir(parents=True, exist_ok=True)
         Image.fromarray(out).save(diff_out)
-    return VisualResult(float(changed.mean()), ssim(_gray(a), _gray(b)), False)
+    ssim_rgb = min(ssim(a[..., c], b[..., c]) for c in range(3))
+    return VisualResult(float(changed.mean()), ssim_rgb, False)
 
 
 def main() -> int:
