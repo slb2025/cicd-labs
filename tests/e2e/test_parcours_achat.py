@@ -56,11 +56,13 @@ def shop(page: Page, app_url: str) -> ShopPage:
 
 
 def test_page_accueil(shop: ShopPage) -> None:
+    """Vérifie l'affichage du titre et du catalogue de produits sur la page d'accueil."""
     expect(shop.page).to_have_title(re.compile("MiniShop"))
     expect(shop.page.get_by_test_id("products").locator("li")).to_have_count(5)
 
 
 def test_parcours_achat_avec_coupon_et_commande(shop: ShopPage) -> None:
+    """Vérifie le parcours E2E complet d'ajout au panier, coupon et validation de commande."""
     shop.add("mug", count=2).apply_coupon("WELCOME10")
     expect(shop.total()).to_have_text(re.compile(r"^27\.40?$"))
     shop.order()
@@ -69,11 +71,13 @@ def test_parcours_achat_avec_coupon_et_commande(shop: ShopPage) -> None:
 
 
 def test_coupon_invalide_affiche_alerte(shop: ShopPage) -> None:
+    """Vérifie l'affichage d'un message d'alerte lors de la saisie d'un coupon invalide."""
     shop.add("mug", count=1).apply_coupon("CODE_INVALIDE")
     expect(shop.error_alert()).to_be_visible()
     expect(shop.error_alert()).not_to_be_empty()
 
 
 def test_bouton_commander_desactive_si_panier_vide(shop: ShopPage) -> None:
+    """Vérifie que le bouton Commander reste désactivé tant que le panier est vide."""
     expect(shop.page.get_by_test_id("cart")).to_contain_text("Votre panier est vide")
     expect(shop.order_button()).to_be_disabled()

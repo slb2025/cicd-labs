@@ -11,18 +11,21 @@ pytestmark = pytest.mark.api
 
 
 def test_health(client) -> None:
+    """Vérifie que l'endpoint /health répond 200 avec le statut ok."""
     r = client.get("/health")
     assert r.status_code == 200
     assert r.json()["status"] == "ok"
 
 
 def test_liste_produits(client) -> None:
+    """Vérifie que GET /products retourne le catalogue complet des produits."""
     r = client.get("/products")
     assert r.status_code == 200
     assert {"mug", "tshirt"} <= {p["id"] for p in r.json()}
 
 
 def test_produit_par_id_200(client) -> None:
+    """Vérifie que GET /products/{id} retourne le détail d'un produit existant."""
     r = client.get("/products/mug")
     assert r.status_code == 200
     body = r.json()
@@ -33,11 +36,13 @@ def test_produit_par_id_200(client) -> None:
 
 
 def test_produit_inconnu_404(client) -> None:
+    """Vérifie que GET /products/{id} retourne 404 pour un identifiant inconnu."""
     r = client.get("/products/produit-inexistant")
     assert r.status_code == 404
 
 
 def test_cart_quote_200_avec_coupon(client) -> None:
+    """Vérifie le calcul de devis via POST /cart/quote avec application d'un coupon valide."""
     payload = {"items": [{"product_id": "mug", "qty": 2}], "coupon": "WELCOME10"}
     r = client.post("/cart/quote", json=payload)
     assert r.status_code == 200
@@ -48,6 +53,7 @@ def test_cart_quote_200_avec_coupon(client) -> None:
 
 
 def test_cart_quote_produit_inconnu_404(client) -> None:
+    """Vérifie que POST /cart/quote retourne 404 si un produit du panier est inconnu."""
     payload = {"items": [{"product_id": "inconnu", "qty": 1}]}
     r = client.post("/cart/quote", json=payload)
     assert r.status_code == 404
@@ -63,11 +69,13 @@ def test_cart_quote_produit_inconnu_404(client) -> None:
     ],
 )
 def test_cart_quote_erreurs_validation_422(client, payload: dict) -> None:
+    """Vérifie que POST /cart/quote rejette les charges utiles invalides avec 422."""
     r = client.post("/cart/quote", json=payload)
     assert r.status_code == 422
 
 
 def test_creation_et_lecture_commande_201_puis_200(client) -> None:
+    """Vérifie la création d'une commande (201) puis sa consultation par identifiant (200)."""
     payload = {"items": [{"product_id": "mug", "qty": 2}], "coupon": "WELCOME10"}
     created = client.post("/orders", json=payload)
     assert created.status_code == 201
@@ -81,16 +89,19 @@ def test_creation_et_lecture_commande_201_puis_200(client) -> None:
 
 
 def test_commande_inconnue_404(client) -> None:
+    """Vérifie que GET /orders/{id} retourne 404 pour une commande inexistante."""
     r = client.get("/orders/000000000000")
     assert r.status_code == 404
 
 
 def test_creation_commande_panier_vide_422(client) -> None:
+    """Vérifie que POST /orders refuse la création d'une commande sur panier vide (422)."""
     r = client.post("/orders", json={"items": []})
     assert r.status_code == 422
 
 
 def test_metrics_expose_compteur_http(client) -> None:
+    """Vérifie que l'endpoint /metrics expose les compteurs Prometheus des requêtes HTTP."""
     client.get("/health")
     r = client.get("/metrics")
     assert r.status_code == 200
@@ -98,6 +109,7 @@ def test_metrics_expose_compteur_http(client) -> None:
 
 
 def test_contrat_openapi_routes_et_types(client) -> None:
+    """Vérifie la conformité des routes et schémas exposés dans /openapi.json."""
     spec = client.get("/openapi.json").json()
     paths = spec["paths"]
 
@@ -137,6 +149,7 @@ def test_contrat_openapi_routes_et_types(client) -> None:
     reason="Définir LIVE_API_URL=http://localhost:8000 pour exécuter la variante serveur réel",
 )
 def test_variante_serveur_reel_httpx() -> None:
+    """Vérifie le fonctionnement de l'API contre une instance serveur réelle via HTTPX."""
     base_url = os.environ["LIVE_API_URL"]
     with httpx.Client(base_url=base_url, timeout=5.0) as live_client:
         r = live_client.post(

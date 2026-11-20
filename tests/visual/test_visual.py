@@ -48,10 +48,12 @@ def shop(page: Page, app_url):
 
 
 def test_accueil(shop: Page):
+    """Vérifie la non-régression visuelle de la page d'accueil par comparaison SSIM."""
     check(shop, "accueil", full_page=True)
 
 
 def test_panier_avec_total(shop: Page):
+    """Vérifie la non-régression visuelle du panier après calcul du devis."""
     shop.get_by_test_id("add-mug").click()
     shop.get_by_test_id("add-tshirt").click()
     shop.get_by_test_id("quote-btn").click()
