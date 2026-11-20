@@ -37,8 +37,8 @@ jobs:
         continue-on-error: true
         run: |
           mkdir -p prev-report/history
-          curl -sfL "${{ steps.deployment.outputs.page_url }}allure/history/history-trend.json" >/dev/null && \
-            wget -q -r -np -nH --cut-dirs=1 -P prev-report "${{ steps.deployment.outputs.page_url }}allure/history/" || true
+          curl -sfL "https://slb2025.github.io/cicd-labs/allure/history/history-trend.json" >/dev/null && \
+            wget -q -r -np -nH --cut-dirs=1 -P prev-report "https://slb2025.github.io/cicd-labs/allure/history/" || true
 
       - name: Exécuter les tests (JUnit + Allure)
         run: |
@@ -88,7 +88,7 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+      url: https://slb2025.github.io/cicd-labs/
     steps:
       - name: Déployer sur GitHub Pages
         id: deployment
