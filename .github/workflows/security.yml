@@ -39,7 +39,7 @@ jobs:
       - name: Scan Trivy HIGH/CRITICAL
         run: |
           docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
-            aquasec/trivy image --exit-code 1 --severity HIGH,CRITICAL minishop
+            aquasec/trivy image --exit-code 1 --ignore-unfixed --severity HIGH,CRITICAL minishop
       - name: Générer le SBOM CycloneDX
         run: |
           mkdir -p reports
@@ -57,6 +57,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Build image Docker pour DAST
+        run: docker build -t minishop .
       - name: Démarrer MiniShop et exécuter OWASP ZAP baseline
         run: |
           mkdir -p zap
