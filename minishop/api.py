@@ -59,6 +59,9 @@ async def observe(request: Request, call_next):
     if os.getenv("MINISHOP_BUG") == "slow" and request.url.path.startswith("/cart"):
         time.sleep(random.uniform(0.3, 0.8))
     response = await call_next(request)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline'")
+
     elapsed = time.perf_counter() - start
     path = request.scope.get("route").path if request.scope.get("route") else request.url.path
     REQUESTS.labels(request.method, path, response.status_code).inc()

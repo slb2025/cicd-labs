@@ -1,0 +1,80 @@
+name: Security (DevSecOps)
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+
+jobs:
+  sast-and-sca:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+      - name: Installer les dépendances
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-dev.txt bandit pip-audit
+      - name: SAST (Bandit & Ruff)
+        run: |
+          bandit -r minishop -ll
+          ruff check --select S .
+      - name: SCA (pip-audit)
+        run: |
+          pip-audit -r requirements.txt
+
+  container-and-sbom:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build image Docker
+        run: docker build -t minishop .
+      - name: Scan Trivy HIGH/CRITICAL
+        run: |
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+            aquasec/trivy image --exit-code 1 --ignore-unfixed --severity HIGH,CRITICAL minishop
+      - name: Générer le SBOM CycloneDX
+        run: |
+          mkdir -p reports
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "$PWD/reports":/out aquasec/trivy image \
+            --format cyclonedx --output /out/sbom.cdx.json minishop
+      - name: Publier le SBOM
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-cyclonedx
+          path: reports/sbom.cdx.json
+
+  dast-zap:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build image Docker pour DAST
+        run: docker build -t minishop .
+      - name: Démarrer MiniShop et exécuter OWASP ZAP baseline
+        run: |
+          mkdir -p zap
+          cp security/zap-rules.tsv zap/
+          chmod 777 zap
+          docker run -d --name minishop-zap -p 8000:8000 minishop
+          timeout 30 bash -c 'until curl -sf http://127.0.0.1:8000/health; do sleep 1; done'
+          docker run --rm --network host -v "$PWD/zap":/zap/wrk \
+            ghcr.io/zaproxy/zaproxy:stable zap-baseline.py -I \
+            -t http://localhost:8000 -c zap-rules.tsv -r zap-report.html
+      - name: Arrêter le conteneur ZAP
+        if: always()
+        run: docker rm -f minishop-zap 2>/dev/null || true
+      - name: Publier le rapport ZAP
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: zap-report
+          path: zap/zap-report.html
