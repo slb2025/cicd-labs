@@ -1,6 +1,6 @@
 # Stratégie de test — MiniShop
 
-> Modèle à compléter pendant l'Atelier 12. Une stratégie de test tient sur 2 pages : si elle est plus longue, personne ne la lit.
+> Modèle complété pendant l'Atelier 12. Une stratégie de test tient sur 2 pages : si elle est plus longue, personne ne la lit.
 
 ## 1. Périmètre et risques
 | Zone | Risque métier | Probabilité | Impact | Niveau de test principal |
@@ -8,14 +8,14 @@
 | Calcul des prix (`pricing.py`) | Mauvais montant facturé | Moyenne | Élevé | Unitaire + génération IA |
 | API commandes | Commande perdue | Faible | Élevé | API + contrat |
 | Interface | Parcours bloqué | Moyenne | Moyen | E2E + visuel |
-| Performance | Abandon de panier | … | … | Charge (Locust/JMeter) |
-| Sécurité | Fuite / injection | … | … | SAST, SCA, DAST (ZAP) |
+| Performance | Abandon de panier | Moyenne | Élevé | Charge (Locust/JMeter) |
+| Sécurité | Fuite / injection | Faible | Élevé | SAST, SCA, DAST (ZAP) |
 
 ## 2. Pyramide et quality gates
 | Étape pipeline | Tests | Seuil bloquant |
 |---|---|---|
 | PR | lint, unitaires, API | 100 % OK, couverture ≥ 85 % |
-| main | + E2E, visuel, sécurité | 0 vulnérabilité HIGH/CRITICAL |
+| main | + E2E, visuel, sécurité | 0 vulnérabilité HIGH/CRITICAL corrigeable |
 | nocturne | charge, ZAP complet | p95 < 300 ms, erreurs < 1 % |
 
 ## 3. Règles pour les tests générés par IA

@@ -15,6 +15,7 @@ pytestmark = pytest.mark.e2e
 
 
 def test_selenium_titre_et_ajout_produit() -> None:
+    """Vérifie avec Selenium le chargement de l'accueil et l'ajout d'un produit au panier."""
     base_url = os.getenv("BASE_URL", "http://127.0.0.1:8000")
     options = webdriver.ChromeOptions()
     options.add_argument("--headless=new")

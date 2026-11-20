@@ -1,0 +1,95 @@
+name: Quality Report & Docs
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  report-and-docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Installer les dépendances de test et documentation
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-dev.txt mkdocs mkdocs-material
+
+      - name: Récupérer l'historique Allure depuis GitHub Pages si disponible
+        id: pages_history
+        continue-on-error: true
+        run: |
+          mkdir -p prev-report/history
+          curl -sfL "${{ steps.deployment.outputs.page_url }}allure/history/history-trend.json" >/dev/null && \
+            wget -q -r -np -nH --cut-dirs=1 -P prev-report "${{ steps.deployment.outputs.page_url }}allure/history/" || true
+
+      - name: Exécuter les tests (JUnit + Allure)
+        run: |
+          mkdir -p reports allure-results
+          if [ -d prev-report/allure/history ]; then
+            cp -r prev-report/allure/history allure-results/history
+          fi
+          pytest -m "not e2e and not visual" \
+            --junitxml=reports/junit.xml \
+            --alluredir=allure-results
+
+      - name: Installer Allure CLI et générer le rapport
+        run: |
+          npm install -g allure-commandline
+          allure generate allure-results -o allure-report --clean
+
+      - name: Générer le catalogue des tests et compiler MkDocs
+        run: |
+          python ai_tools/gen_test_docs.py --junit reports/junit.xml --out docs/tests/catalogue.md
+          mkdocs build --strict -d site-build
+          mkdir -p site-build/allure
+          cp -r allure-report/* site-build/allure/
+
+      - name: Pousser les métriques vers Pushgateway si configuré
+        if: env.PUSHGATEWAY_URL != ''
+        env:
+          PUSHGATEWAY_URL: ${{ secrets.PUSHGATEWAY_URL }}
+        run: |
+          python ai_tools/push_metrics.py reports/junit.xml \
+            --gateway "$PUSHGATEWAY_URL" \
+            --branch "${{ github.ref_name }}"
+
+      - name: Archiver le rapport Allure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: allure-report
+          path: allure-report
+
+      - name: Préparer l'artefact GitHub Pages
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site-build
+
+  deploy:
+    needs: report-and-docs
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Déployer sur GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
