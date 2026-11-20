@@ -67,7 +67,7 @@ jobs:
           docker run -d --name minishop-zap -p 8000:8000 minishop
           timeout 30 bash -c 'until curl -sf http://127.0.0.1:8000/health; do sleep 1; done'
           docker run --rm --network host -v "$PWD/zap":/zap/wrk \
-            ghcr.io/zaproxy/zaproxy:stable zap-baseline.py \
+            ghcr.io/zaproxy/zaproxy:stable zap-baseline.py -I \
             -t http://localhost:8000 -c zap-rules.tsv -r zap-report.html
       - name: Arrêter le conteneur ZAP
         if: always()
