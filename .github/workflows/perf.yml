@@ -1,0 +1,64 @@
+name: Performance Tests
+
+on:
+  schedule:
+    - cron: "0 2 * * *"
+  workflow_dispatch:
+    inputs:
+      users:
+        description: "Nombre d'utilisateurs simulés"
+        required: false
+        default: "50"
+        type: string
+      duration:
+        description: "Durée du test (ex. 1m, 30s)"
+        required: false
+        default: "1m"
+        type: string
+
+jobs:
+  locust:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Installer les dépendances
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-dev.txt locust
+
+      - name: Démarrer l'API MiniShop
+        run: |
+          mkdir -p reports
+          uvicorn minishop.api:app --host 127.0.0.1 --port 8000 >/tmp/uvicorn.log 2>&1 &
+          SRV_PID=$!
+          echo "SRV_PID=$SRV_PID" >> "$GITHUB_ENV"
+          timeout 30 bash -c 'until curl -sf http://127.0.0.1:8000/health; do sleep 1; done'
+
+      - name: Exécuter le test de charge Locust (avec contrôle SLO)
+        run: |
+          USERS="${{ inputs.users || '50' }}"
+          DURATION="${{ inputs.duration || '1m' }}"
+          locust -f tests/perf/locustfile.py --host http://127.0.0.1:8000 \
+            --headless -u "$USERS" -r 10 -t "$DURATION" \
+            --csv reports/perf --html reports/perf.html
+
+      - name: Arrêter l'API MiniShop
+        if: always()
+        run: |
+          if [ -n "${SRV_PID:-}" ]; then
+            kill "$SRV_PID" 2>/dev/null || true
+          fi
+
+      - name: Publier les rapports de performance
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: perf-reports
+          path: |
+            reports/perf*.csv
+            reports/perf*.html
